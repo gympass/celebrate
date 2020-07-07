@@ -1,12 +1,13 @@
-
 /* eslint-env jest */
-const Express = require('express');
-const Artificial = require('artificial');
-const BodyParser = require('body-parser');
-const CookieParser = require('cookie-parser');
+const restify = require('restify');
+const request = require('supertest');
 const signature = require('cookie-signature');
-const { random } = require('faker');
-const Teamwork = require('@hapi/teamwork');
+const cookieParser = require('cookie-parser');
+const async = require('async');
+const {
+  random,
+} = require('faker');
+
 const {
   celebrate,
   Joi,
@@ -14,20 +15,19 @@ const {
 } = require('../lib');
 
 const Server = () => {
-  const server = Express();
-  server.use(CookieParser(random.alphaNumeric()));
-  server.use(BodyParser.json());
-  Artificial(server);
+  const server = restify.createServer();
+  server.use(restify.plugins.queryParser());
+  server.use(restify.plugins.bodyParser({
+    requestBodyOnGet: true,
+  }));
+  server.use(cookieParser());
   return server;
 };
 
-
 describe('validations', () => {
-  test('req.headers', async () => {
-    expect.assertions(2);
-    const server = Server();
-    const team = new Teamwork();
+  test('req.headers', async (done) => {
     const next = jest.fn();
+    const server = Server();
 
     server.get('/', celebrate({
       [Segments.HEADERS]: {
@@ -37,70 +37,55 @@ describe('validations', () => {
       allowUnknown: true,
     }), next);
 
-    server.inject({
-      method: 'GET',
-      url: '/',
-      [Segments.HEADERS]: {
-        accept: 'application/json',
-      },
-    }, team.attend.bind(team));
-
-    const { statusCode } = await team.work;
-
-    expect(statusCode).toBe(500);
-    expect(next).not.toHaveBeenCalled();
+    request(server)
+      .get('/')
+      .set('accept', 'application/json')
+      .expect(() => {
+        expect(next).not.toHaveBeenCalled();
+      })
+      .expect(500, done);
   });
 
-  test('req.params', async () => {
-    expect.assertions(2);
-    const server = Server();
-    const team = new Teamwork();
+  test('req.params', async (done) => {
     const next = jest.fn();
+    const server = Server();
 
-    server.get('/user/:id', celebrate({
+    server.get('/params/:id', celebrate({
       [Segments.PARAMS]: {
-        id: Joi.string().token(),
+        id: Joi.number().required(),
       },
     }), next);
 
-    server.inject({
-      method: 'get',
-      url: '/user/@@',
-    }, team.attend.bind(team));
-
-    const { statusCode } = await team.work;
-
-    expect(statusCode).toBe(500);
-    expect(next).not.toHaveBeenCalled();
+    request(server)
+      .get('/params/notanumber')
+      .expect(() => {
+        expect(next).not.toHaveBeenCalled();
+      })
+      .expect(500, done);
   });
 
-  test('req.query', async () => {
-    expect.assertions(2);
-    const server = Server();
-    const team = new Teamwork();
+  test('req.query', async (done) => {
     const next = jest.fn();
+    const server = Server();
 
     server.get('/', celebrate({
       [Segments.QUERY]: Joi.object().keys({
-        start: Joi.date(),
+        start: Joi.string().required(),
       }),
     }), next);
 
-    server.inject({
-      url: '/?end=celebrate',
-    }, team.attend.bind(team));
-
-    const { statusCode } = await team.work;
-
-    expect(statusCode).toBe(500);
-    expect(next).not.toHaveBeenCalled();
+    request(server)
+      .get('/')
+      .query({ end: 'celebrate' })
+      .expect(() => {
+        expect(next).not.toHaveBeenCalled();
+      })
+      .expect(500, done);
   });
 
-  test('req.cookies', async () => {
-    expect.assertions(2);
-    const server = Server();
-    const team = new Teamwork();
+  test('req.cookies', async (done) => {
     const next = jest.fn();
+    const server = Server();
 
     server.post('/', celebrate({
       cookies: {
@@ -108,25 +93,18 @@ describe('validations', () => {
       },
     }), next);
 
-    server.inject({
-      url: '/',
-      method: 'post',
-      [Segments.HEADERS]: {
-        Cookie: 'state=notanumber',
-      },
-    }, team.attend.bind(team));
-
-    const { statusCode } = await team.work;
-
-    expect(statusCode).toBe(500);
-    expect(next).not.toHaveBeenCalled();
+    request(server)
+      .post('/')
+      .set('Cookie', 'state=notanumber')
+      .expect(() => {
+        expect(next).not.toHaveBeenCalled();
+      })
+      .expect(500, done);
   });
 
-  test('req.signedCookies', async () => {
-    expect.assertions(2);
-    const server = Server();
-    const team = new Teamwork();
+  test('req.signedCookies', async (done) => {
     const next = jest.fn();
+    const server = Server();
 
     server.get('/', celebrate({
       [Segments.SIGNEDCOOKIES]: {
@@ -136,25 +114,18 @@ describe('validations', () => {
 
     const val = signature.sign('notanumber', 'secret');
 
-    server.inject({
-      url: '/',
-      method: 'get',
-      [Segments.HEADERS]: {
-        Cookie: `state=s:${val}`,
-      },
-    }, team.attend.bind(team));
-
-    const { statusCode } = await team.work;
-
-    expect(statusCode).toBe(500);
-    expect(next).not.toHaveBeenCalled();
+    request(server)
+      .get('/')
+      .set('Cookie', `state=s:${val}`)
+      .expect(() => {
+        expect(next).not.toHaveBeenCalled();
+      })
+      .expect(500, done);
   });
 
-  test('req.body', async () => {
-    expect.assertions(2);
-    const server = Server();
-    const team = new Teamwork();
+  test('req.body', async (done) => {
     const next = jest.fn();
+    const server = Server();
 
     server.post('/', celebrate({
       [Segments.BODY]: {
@@ -164,27 +135,22 @@ describe('validations', () => {
       },
     }), next);
 
-    server.inject({
-      url: '/',
-      method: 'post',
-      payload: {
+    request(server)
+      .post('/')
+      .send({
         first: 'john',
         last: 123,
-      },
-    }, team.attend.bind(team));
-
-    const { statusCode } = await team.work;
-
-    expect(statusCode).toBe(500);
-    expect(next).not.toHaveBeenCalled();
+      })
+      .expect(() => {
+        expect(next).not.toHaveBeenCalled();
+      })
+      .expect(500, done);
   });
 });
 
 describe('update req values', () => {
-  test('req.headers', async () => {
-    expect.assertions(1);
+  test('req.headers', async (done) => {
     const server = Server();
-    const team = new Teamwork();
 
     server.get('/', celebrate({
       [Segments.HEADERS]: {
@@ -193,78 +159,74 @@ describe('update req values', () => {
       },
     }, {
       allowUnknown: true,
-    }), (req) => {
+    }), (req, res) => {
       delete req.headers.host; // this can change computer to computer, so just remove it
-      team.attend(req);
-    });
+      const { headers } = req;
 
-    server.inject({
-      method: 'GET',
-      url: '/',
-      [Segments.HEADERS]: {
+      expect(headers).toEqual({
         accept: 'application/json',
-      },
+        'accept-encoding': 'gzip, deflate',
+        connection: 'close',
+        'user-agent': 'node-superagent/3.8.3',
+        'secret-header': '@@@@@@',
+      });
+      res.send(200);
     });
 
-    const { headers } = await team.work;
-
-    expect(headers).toEqual({
-      accept: 'application/json',
-      'user-agent': 'shot',
-      'secret-header': '@@@@@@',
-    });
+    request(server)
+      .get('/')
+      .set('accept', 'application/json')
+      .expect(200)
+      .end(done);
   });
 
-  test('req.params', async () => {
-    expect.assertions(1);
+  test('req.params', async (done) => {
     const server = Server();
-    const team = new Teamwork();
 
     server.get('/user/:id', celebrate({
       [Segments.PARAMS]: {
         id: Joi.string().uppercase(),
       },
-    }), team.attend.bind(team));
-
-    server.inject({
-      method: 'get',
-      url: '/user/adam',
+    }), (req, res) => {
+      const { params } = req;
+      expect(params.id).toBe('ADAM');
+      res.send(200);
     });
 
-    const { params } = await team.work;
-
-    expect(params.id).toBe('ADAM');
+    request(server)
+      .get('/user/adam')
+      .expect(200)
+      .end(done);
   });
 
-  test('req.query', async () => {
-    expect.assertions(1);
+  test('req.query', async (done) => {
     const server = Server();
-    const team = new Teamwork();
 
     server.get('/', celebrate({
       [Segments.QUERY]: Joi.object().keys({
         name: Joi.string().uppercase(),
         page: Joi.number().default(1),
       }),
-    }), team.attend.bind(team));
+    }), (req, res) => {
+      const { query } = req;
 
+      expect(query).toEqual({
+        name: 'JOHN',
+        page: 1,
+      });
 
-    server.inject({
-      url: '/?name=john',
+      res.send(200);
     });
 
-    const { query } = await team.work;
-
-    expect(query).toEqual({
-      name: 'JOHN',
-      page: 1,
-    });
+    request(server)
+      .get('/')
+      .query({ name: 'john' })
+      .expect(200)
+      .end(done);
   });
 
-  test('req.body', async () => {
-    expect.assertions(1);
+  test('req.body', async (done) => {
     const server = Server();
-    const team = new Teamwork();
 
     server.post('/', celebrate({
       [Segments.BODY]: {
@@ -272,31 +234,30 @@ describe('update req values', () => {
         last: Joi.string().default('Smith'),
         role: Joi.string().uppercase(),
       },
-    }), team.attend.bind(team));
+    }), (req, res) => {
+      const { body } = req;
+      expect(body).toEqual({
+        first: 'john',
+        role: 'ADMIN',
+        last: 'Smith',
+      });
+      res.send(200);
+    });
 
-    server.inject({
-      url: '/',
-      method: 'post',
-      payload: {
+    request(server)
+      .post('/')
+      .send({
         first: 'john',
         role: 'admin',
-      },
-    });
-
-    const { body } = await team.work;
-    expect(body).toEqual({
-      first: 'john',
-      role: 'ADMIN',
-      last: 'Smith',
-    });
+      })
+      .expect(200)
+      .end(done);
   });
 });
 
 describe('reqContext', () => {
-  test('passes req as Joi context during validation', async () => {
-    expect.assertions(2);
+  test('passes req as Joi context during validation', async (done) => {
     const server = Server();
-    const team = new Teamwork({ meetings: 2 });
 
     server.post('/:userId', celebrate({
       [Segments.BODY]: {
@@ -308,27 +269,18 @@ describe('reqContext', () => {
     }, null, {
       reqContext: true,
     }), (req, res) => {
-      team.attend(req);
-      res.send();
+      expect(req.body.id).toEqual(req.params.userId);
+      res.send(200);
     });
 
-    server.inject({
-      method: 'POST',
-      url: '/12345',
-      payload: {
-        id: 12345,
-      },
-    }, team.attend.bind(team));
-
-    const [req, res] = await team.work;
-    expect(req.body.id).toEqual(req.params.userId);
-    expect(res.statusCode).toBe(200);
+    request(server)
+      .post('/12345')
+      .send({ id: 12345 })
+      .expect(200, done);
   });
 
-  test('fails validation based on req values', async () => {
-    expect.assertions(2);
+  test('fails validation based on req values', async (done) => {
     const server = Server();
-    const team = new Teamwork();
     const next = jest.fn();
 
     server.post('/:userId', celebrate({
@@ -340,26 +292,20 @@ describe('reqContext', () => {
       },
     }, null, {
       reqContext: true,
-    }), next);
+    }));
 
-    server.inject({
-      method: 'POST',
-      url: '/123',
-      payload: {
-        id: 12345,
-      },
-    }, team.attend.bind(team));
-
-    const res = await team.work;
-
-    expect(res.statusCode).toBe(500);
-    expect(next).not.toHaveBeenCalled();
+    request(server)
+      .post('/123')
+      .send({ id: 12345 })
+      .expect(() => {
+        expect(next).not.toHaveBeenCalled();
+      })
+      .expect(500, done);
   });
 });
 
 describe('multiple-runs', () => {
-  test('continues to set default values', () => {
-    expect.assertions(10);
+  test('continues to set default values', (done) => {
     const server = Server();
 
     server.get('/', celebrate({
@@ -370,58 +316,40 @@ describe('multiple-runs', () => {
     }, {
       allowUnknown: true,
     }), (req, res) => {
-      delete req.headers.host; // this can change computer to computer, so just remove it
+      delete req.headers.host;
       res.send(req.headers);
     });
 
-    const attempts = Array.from({ length: 10 }, () => new Promise((resolve) => server.inject({
-      method: 'GET',
-      url: '/',
-      headers: {
-        accept: 'application/json',
-      },
-    }, (r) => {
-      resolve(JSON.parse(r.payload));
-    })));
+    const expectedResponse = {
+      accept: 'application/json',
+      'accept-encoding': 'gzip, deflate',
+      connection: 'close',
+      'user-agent': 'node-superagent/3.8.3',
+      'secret-header': '@@@@@@',
+    };
 
-    return Promise.all(attempts).then((v) => {
-      v.forEach((headers) => {
-        expect(headers).toEqual({
-          accept: 'application/json',
-          'user-agent': 'shot',
-          'secret-header': '@@@@@@',
-        });
-      });
-    });
+    async.series([
+      function assertion(cb) { request(server).get('/').set('accept', 'application/json').expect(expectedResponse, cb); },
+      function assertion(cb) { request(server).get('/').set('accept', 'application/json').expect(expectedResponse, cb); },
+      function assertion(cb) { request(server).get('/').set('accept', 'application/json').expect(expectedResponse, cb); },
+    ], done);
   });
 
-  test('continues to validate values', () => {
-    expect.assertions(10);
+  test('continues to validate values', (done) => {
     const server = Server();
-
     server.post('/', celebrate({
       [Segments.BODY]: {
         name: Joi.string().required(),
       },
-    }));
-
-    const attempts = Array.from({ length: 10 }, () => new Promise((resolve) => server.inject({
-      method: 'POST',
-      url: '/',
-      payload: {
-        age: random.number(),
-      },
-      headers: {
-        accept: 'application/json',
-      },
-    }, (r) => {
-      resolve(r.statusCode);
-    })));
-
-    return Promise.all(attempts).then((v) => {
-      v.forEach((statusCode) => {
-        expect(statusCode).toEqual(500);
-      });
+    }), (req, res) => {
+      res.send(200);
     });
+
+    async.series([
+      function assertion(cb) { request(server).post('/').send({ age: random.number() }).expect(500, cb); },
+      function assertion(cb) { request(server).post('/').send({ name: 'ana' }).expect(200, cb); },
+      function assertion(cb) { request(server).post('/').send({ age: random.number() }).expect(500, cb); },
+
+    ], done);
   });
 });
